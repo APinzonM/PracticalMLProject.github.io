@@ -1,0 +1,171 @@
+---
+title: "Practical Machine Learning Course Project - Johns Hopkins University"
+author: "Alfonso Pinzon"
+date: "4/13/2021"
+output: html_document
+---
+## Overview
+
+Devices like Jawbone Up, Nike FuelBand, and Fitbit, are increasingly enabling the unexpensive collection of activity and overall health data. In this practical Machine Learning Course project, as part of the Data Science Specialization offered by Johns Hopkins University on Coursera, we will analyze and build models out of date collected from accelerometers on the belt, forearmr, arm and dummbell of 6 participants who were asked to perform barbell lifts in 5 different right/wrong ways as follows:
+
+-	According to specs – Class A (right)
+-	Throwing the elbows to the front – Class B (wrong)
+-	Lifting the dumbbell halfway - Class C (wrong)
+-	Lowering the dumbbell halfway – Class D (wrong)
+-	Throwing hips to the front – Class E (wrong)
+
+Using cross-validation and measuring its error rate, we will build a model using the above-mentioned accelerometer data as predictor. It will predict the “Class” of 20 participants, that is the way he/she will perform the barbell lifts.
+
+Links:
+
+Training Data:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+Test Data:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+Data Source:
+<http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.>
+
+## 1. Data Preparation - Pre-Modeling Analysis
+
+## 1.1 R Libraries + Data Loading
+
+We start by uplading all requiered R libraries, as well as loading both training and test sets needed for modeling and analysis:
+
+```{r libraries}
+# Uploading all the libraries
+library(ggplot2) 
+library(lattice) 
+library(knitr) 
+library(caret) 
+library(rpart) 
+library(rpart.plot) 
+library(corrplot)
+library(rattle) 
+library(randomForest)
+set.seed(1234)
+```
+
+
+```{r}
+# Linking the data download
+UrlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+UrlTest  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+```
+
+``` {r}
+# Downloading the datasets
+training <- read.csv(url(UrlTrain))
+testing  <- read.csv(url(UrlTest))
+
+training$classe <- as.factor(training$classe) 
+
+```
+
+## 1.2 Dataframes
+
+``` {r}
+# Looking at the data frames
+dim(training)
+dim(testing)
+```
+
+We’ve got a training set with 19622 observations and 160 variables, while our test set is made of 160 observations and 20 variables. This is correct. 
+
+## 1.3 Data Cleaning + Partition
+
+We perform some data cleaning, and we split the training data into a validation and a sub-training set:
+
+``` {r}
+# remove na columns
+training <- training[,colMeans(is.na(training)) < .9]
+# remove irrelevant metadata
+training <- training[,-c(1:7)] 
+# remove near zero variance variables
+nvz <- nearZeroVar(training)
+training <- training[,-nvz]
+dim(training)
+```
+We have reduced our analysis variables to 53. 
+
+We proceed to split the data in the training set in in order to obtain a validation and sub-training sets:
+
+``` {r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=F) 
+train <- training[inTrain,] 
+valid <- training[-inTrain,]
+```
+
+## 1.4 Correlation Analysis
+
+We can plot a Matrix in order to explore the correlation between variables:
+
+``` {r}
+# Create a Correlation Matrix
+corMatrix <- cor(training[, -53])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.6, tl.col = rgb(0, 0, 0))
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Dark color denotes highly correlated variables in the matrix, and we can spot a few important ones. 
+
+## 2. Model Building + Testing 
+
+## 2.1 Decision Trees
+
+``` {r}
+# Set up control for training to use 3-fold cross validation
+control <- trainControl(method="cv", number=3, verboseIter=F)
+```
+
+``` {r}
+# Decision Trees Model
+mod_trees <- train(classe~., data=train, method="rpart", trControl = control, tuneLength = 5)
+fancyRpartPlot(mod_trees$finalModel)
+```
+
+``` {r}
+# Prediction 
+pred_trees <- predict(mod_trees, valid)
+cmtrees <- confusionMatrix(pred_trees, factor(valid$class))
+cmtrees
+```
+
+Our accuracy is only 0.5344 with an Out of Sample error of 0.463, so we will try a SVM model. 
+
+## 2.2 Support Vector Machine
+
+``` {r}
+### SVM
+mod_svm <- train(classe~., data=train, method="svmLinear", trControl = control, tuneLength = 5, verbose = F)
+
+pred_svm <- predict(mod_svm, valid)
+cmsvm <- confusionMatrix(pred_svm, factor(valid$classe))
+cmsvm
+```
+
+We have improved our accuracy to 0.7946, with an Out of Sample error of 0.2054. But we might do better, so we will try a Random Forest Model.
+
+## 2.3 Random Forest
+
+``` {r}
+# Random Forest Model Fit
+set.seed(12345)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=train, method="rf",
+                          trControl=controlRF)
+modFitRandForest$finalModel
+```
+
+We can see how Random Forest is our model of choice, given it has 0.9924 accuracy! 
+
+So, we finalize by using Random Forest in order to make our prediction over the 20 different cases of the testing data:  
+
+``` {r}
+predictTEST <- predict(modFitRandForest, newdata=testing)
+predictTEST
+```
